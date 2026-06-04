@@ -8,11 +8,10 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, getDocs, collection, onSnapshot }
-  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-
+<!-- Firebase compat (works everywhere, no bundler needed) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script>
 const firebaseConfig = {
   apiKey: "AIzaSyBw471eW_uj0Pjwhebns0WePxouOO1nfSY",
   authDomain: "finanzaspro-5e04f.firebaseapp.com",
@@ -22,11 +21,10 @@ const firebaseConfig = {
   appId: "1:238832747230:web:d4b0f115bf6a75c3e5f84f"
 };
 
-const fbApp = initializeApp(firebaseConfig);
-const db   = getFirestore(fbApp);
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
 let _unsub = null;
 
-// Firestore rejects undefined values — deep-clean before every write
 function clean(obj) {
   return JSON.parse(JSON.stringify(obj, (k, v) => v === undefined ? null : v));
 }
@@ -34,26 +32,26 @@ function clean(obj) {
 window._fb = {
   async listProfiles() {
     try {
-      const snap = await getDocs(collection(db, "profiles"));
+      const snap = await db.collection("profiles").get();
       return snap.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch(e) { console.error('listProfiles', e); return []; }
   },
   async loadProfile(name) {
     try {
-      const snap = await getDoc(doc(db, "profiles", name));
-      return snap.exists() ? snap.data() : null;
+      const snap = await db.collection("profiles").doc(name).get();
+      return snap.exists ? snap.data() : null;
     } catch(e) { console.error('loadProfile', e); return null; }
   },
   async saveProfile(name, profileData) {
     try {
-      await setDoc(doc(db, "profiles", name), clean(profileData));
+      await db.collection("profiles").doc(name).set(clean(profileData));
       return true;
     } catch(e) { console.error('saveProfile', e); return false; }
   },
   listen(name, cb) {
     if (_unsub) _unsub();
-    _unsub = onSnapshot(doc(db, "profiles", name), snap => {
-      if (snap.exists()) cb(snap.data());
+    _unsub = db.collection("profiles").doc(name).onSnapshot(snap => {
+      if (snap.exists) cb(snap.data());
     }, err => console.error('listen', err));
   },
   stopListen() { if (_unsub) { _unsub(); _unsub = null; } }

@@ -57,7 +57,15 @@ window._fb = {
   stopListen() { if (_unsub) { _unsub(); _unsub = null; } }
 };
 
-window.dispatchEvent(new Event('firebase-ready'));
+// Fire after DOM is fully loaded so listeners are registered
+window.addEventListener('DOMContentLoaded', async function() {
+  try {
+    await db.collection("_ping").doc("test").get();
+  } catch(e) {
+    console.warn("Firestore ping:", e.code, e.message);
+  }
+  window.dispatchEvent(new Event('firebase-ready'));
+});
 </script>
 
 <style>
@@ -331,7 +339,11 @@ tr:hover td{background:rgba(255,255,255,.02)}
     <i class="fa-solid fa-leaf"></i> FinanzasPro
   </div>
   <div class="spinner"></div>
-  <div style="font-size:13px;color:var(--tex3)">Conectando con Firebase...</div>
+  <div style="font-size:13px;color:var(--tex3)" id="loadingMsg">Conectando con Firebase...</div>
+  <div id="loadingRetry" style="display:none;margin-top:16px;text-align:center">
+    <div style="font-size:12px;color:var(--red);margin-bottom:10px">No se pudo conectar. Verifica tu internet.</div>
+    <button onclick="location.reload()" style="background:var(--acc3);border:none;border-radius:8px;padding:8px 20px;color:#fff;font-size:13px;cursor:pointer">Reintentar</button>
+  </div>
 </div>
 
 <!-- PIN SCREEN -->
@@ -810,6 +822,14 @@ function saveData() {
 }
 
 // ── FIREBASE INIT ──────────────────────────────────────────
+// Timeout: if firebase-ready doesn't fire in 8 seconds, show retry
+setTimeout(() => {
+  if (document.getElementById('loadingOverlay').style.display !== 'none') {
+    document.getElementById('loadingMsg').textContent = 'Tiempo de espera agotado.';
+    document.getElementById('loadingRetry').style.display = 'block';
+  }
+}, 8000);
+
 window.addEventListener('firebase-ready', () => {
   document.getElementById('loadingOverlay').style.display = 'none';
   document.getElementById('pinScreen').classList.add('active');

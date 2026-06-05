@@ -1236,25 +1236,30 @@ function renderDashboard() {
   const panel = document.getElementById('dash-connected');
   if (panel) panel.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px">
-      <div class="card" style="cursor:pointer;grid-column:span 1" onclick="showSection('gastosFijos')">
+      <div class="card" style="cursor:pointer" onclick="showSection('gastosFijos')">
         <div class="card-title"><i class="fa-solid fa-calendar-check" style="color:var(--acc);margin-right:4px"></i>Gastos Fijos</div>
-        <div style="font-size:20px;font-weight:700;margin-top:4px">\${fxPaid}/\${fxTotal} pagados</div>
-        <div style="font-size:12px;color:var(--red);margin-top:2px">\${fxPend>0?`Pendiente: \${fmtUSD(fxPend)}`:''}</div>
+        <div style="font-size:20px;font-weight:700;margin-top:4px">${fxPaid}/${fxTotal} pagados</div>
+        <div style="font-size:12px;color:var(--red);margin-top:2px">${fxPend>0?'Pendiente: '+fmtUSD(fxPend):''}</div>
+      </div>
+      <div class="card" style="cursor:pointer" onclick="showSection('ingresosFijos')">
+        <div class="card-title"><i class="fa-solid fa-calendar-plus" style="color:var(--acc2);margin-right:4px"></i>Ingresos Fijos</div>
+        <div style="font-size:20px;font-weight:700;margin-top:4px">${ifRecib}/${ifTotal} recibidos</div>
+        <div style="font-size:12px;color:${ifPend>0?'var(--yel)':'var(--acc)'};margin-top:2px">${ifPend>0?'Por recibir: '+fmtUSD(ifPend):ifTotal?'Todos recibidos':''}</div>
       </div>
       <div class="card" style="cursor:pointer" onclick="showSection('deudas')">
         <div class="card-title"><i class="fa-solid fa-credit-card" style="color:var(--yel);margin-right:4px"></i>Deudas</div>
         <div style="font-size:20px;font-weight:700;margin-top:4px">${debtPaid}/${debts.length} cuotas</div>
-        <div style="font-size:12px;color:${debtMora>0?'var(--red)':'var(--tex3)'};margin-top:2px">${debtMora>0?`Mora: ${fmtUSD(debtMora)}`:debts.length?'Sin mora':'Sin deudas'}</div>
+        <div style="font-size:12px;color:${debtMora>0?'var(--red)':'var(--tex3)'};margin-top:2px">${debtMora>0?'Mora: '+fmtUSD(debtMora):debts.length?'Sin mora':'Sin deudas'}</div>
       </div>
       <div class="card" style="cursor:pointer" onclick="showSection('presupuesto')">
         <div class="card-title"><i class="fa-solid fa-sliders" style="color:var(--blu);margin-right:4px"></i>Presupuestos</div>
         <div style="font-size:20px;font-weight:700;margin-top:4px">${Object.keys(budgets).length} activos</div>
-        <div style="font-size:12px;color:${budOver>0?'var(--red)':'var(--acc)'};margin-top:2px">${budOver>0?`${budOver} excedido(s)`:'Todos en orden'}</div>
+        <div style="font-size:12px;color:${budOver>0?'var(--red)':'var(--acc)'};margin-top:2px">${budOver>0?budOver+' excedido(s)':'Todos en orden'}</div>
       </div>
       <div class="card" style="cursor:pointer" onclick="showSection('metas')">
         <div class="card-title"><i class="fa-solid fa-bullseye" style="color:var(--pur);margin-right:4px"></i>Metas</div>
         <div style="font-size:20px;font-weight:700;margin-top:4px">${goals.length} metas</div>
-        <div style="font-size:12px;color:${goalsDone>0?'var(--acc)':'var(--tex3)'};margin-top:2px">${goalsDone>0?`${goalsDone} completada(s)`:'En progreso'}</div>
+        <div style="font-size:12px;color:${goalsDone>0?'var(--acc)':'var(--tex3)'};margin-top:2px">${goalsDone>0?goalsDone+' completada(s)':'En progreso'}</div>
       </div>
     </div>`;
 

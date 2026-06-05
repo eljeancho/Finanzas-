@@ -308,16 +308,16 @@ tr:hover td{background:rgba(255,255,255,.02)}
   th,td{padding:7px 8px}
   .pin-card{width:calc(100vw - 32px);max-width:340px}
   /* Bottom navigation bar */
-  #bottomNav{display:flex}
-}
-@media(min-width:601px){
-  #bottomNav{display:none}
+  #bottomNav{display:flex !important}
 }
 #bottomNav{
   position:fixed;bottom:0;left:0;right:0;
   background:var(--bg2);border-top:1px solid var(--bor);
   display:none;z-index:20;
   padding:6px 0 max(6px, env(safe-area-inset-bottom));
+}
+@media(min-width:601px){
+  #bottomNav{display:none !important}
 }
 .bnav-item{flex:1;display:flex;flex-direction:column;align-items:center;
   gap:3px;padding:6px 4px;cursor:pointer;color:var(--tex3);font-size:10px;

@@ -2,17 +2,16 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>FinanzasPro — Control Financiero</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, getDocs, collection, onSnapshot }
-  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-
+<!-- Firebase compat (works everywhere, no bundler needed) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script>
 const firebaseConfig = {
   apiKey: "AIzaSyBw471eW_uj0Pjwhebns0WePxouOO1nfSY",
   authDomain: "finanzaspro-5e04f.firebaseapp.com",
@@ -22,11 +21,10 @@ const firebaseConfig = {
   appId: "1:238832747230:web:d4b0f115bf6a75c3e5f84f"
 };
 
-const fbApp = initializeApp(firebaseConfig);
-const db   = getFirestore(fbApp);
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
 let _unsub = null;
 
-// Firestore rejects undefined values — deep-clean before every write
 function clean(obj) {
   return JSON.parse(JSON.stringify(obj, (k, v) => v === undefined ? null : v));
 }
@@ -34,26 +32,26 @@ function clean(obj) {
 window._fb = {
   async listProfiles() {
     try {
-      const snap = await getDocs(collection(db, "profiles"));
+      const snap = await db.collection("profiles").get();
       return snap.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch(e) { console.error('listProfiles', e); return []; }
   },
   async loadProfile(name) {
     try {
-      const snap = await getDoc(doc(db, "profiles", name));
-      return snap.exists() ? snap.data() : null;
+      const snap = await db.collection("profiles").doc(name).get();
+      return snap.exists ? snap.data() : null;
     } catch(e) { console.error('loadProfile', e); return null; }
   },
   async saveProfile(name, profileData) {
     try {
-      await setDoc(doc(db, "profiles", name), clean(profileData));
+      await db.collection("profiles").doc(name).set(clean(profileData));
       return true;
     } catch(e) { console.error('saveProfile', e); return false; }
   },
   listen(name, cb) {
     if (_unsub) _unsub();
-    _unsub = onSnapshot(doc(db, "profiles", name), snap => {
-      if (snap.exists()) cb(snap.data());
+    _unsub = db.collection("profiles").doc(name).onSnapshot(snap => {
+      if (snap.exists) cb(snap.data());
     }, err => console.error('listen', err));
   },
   stopListen() { if (_unsub) { _unsub(); _unsub = null; } }
@@ -98,8 +96,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--tex);min-
   padding:8px 14px;cursor:pointer;color:var(--tex2);font-size:13px;transition:.2s;
   display:flex;align-items:center;gap:6px}
 .profile-btn.active,.profile-btn:hover{border-color:var(--acc);color:var(--acc)}
-.pin-display{display:flex;gap:12px;justify-content:center;margin-bottom:24px}
-.pin-dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--bor2);transition:.2s}
+.pin-display{display:flex;gap:8px;justify-content:center;margin-bottom:24px}
+.pin-dot{width:12px;height:12px;border-radius:50%;border:2px solid var(--bor2);transition:.2s}
 .pin-dot.filled{background:var(--acc);border-color:var(--acc)}
 .pin-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .pin-key{background:var(--bg3);border:1px solid var(--bor);border-radius:var(--rad2);
@@ -274,12 +272,55 @@ tr:hover td{background:rgba(255,255,255,.02)}
 .empty-state i{font-size:40px;margin-bottom:12px;opacity:.4;display:block}
 .empty-state p{font-size:14px}
 
+
+/* ── MOBILE ── */
 @media(max-width:900px){
   .sidebar{width:60px;min-width:60px}
   .nav-item span,.sidebar-logo small,.sidebar-logo-text,.sidebar-bottom .profile-tag span{display:none}
   .grid-4{grid-template-columns:repeat(2,1fr)}
   .grid-3{grid-template-columns:repeat(2,1fr)}
 }
+@media(max-width:600px){
+  /* Hide sidebar completely, use bottom nav on mobile */
+  .sidebar{display:none}
+  #appScreen{flex-direction:column}
+  .main{width:100vw;height:100dvh;display:flex;flex-direction:column}
+  .content{padding:14px;flex:1;overflow-y:auto}
+  .topbar{padding:10px 14px}
+  .topbar-title{font-size:15px}
+  .grid-4{grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
+  .grid-3{grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
+  .grid-2{grid-template-columns:1fr;gap:10px;margin-bottom:14px}
+  .card{padding:14px}
+  .card-val{font-size:22px}
+  .form-row{grid-template-columns:1fr;gap:10px}
+  .modal{max-width:100%;margin:0;border-radius:var(--rad) var(--rad) 0 0;position:fixed;bottom:0;left:0;right:0;max-height:92dvh}
+  .modal-overlay{align-items:flex-end;padding:0}
+  table{font-size:12px}
+  th,td{padding:7px 8px}
+  .pin-card{width:calc(100vw - 32px);max-width:340px}
+  /* Bottom navigation bar */
+  #bottomNav{display:flex}
+}
+@media(min-width:601px){
+  #bottomNav{display:none}
+}
+#bottomNav{
+  position:fixed;bottom:0;left:0;right:0;
+  background:var(--bg2);border-top:1px solid var(--bor);
+  display:none;z-index:20;
+  padding:6px 0 max(6px, env(safe-area-inset-bottom));
+}
+.bnav-item{flex:1;display:flex;flex-direction:column;align-items:center;
+  gap:3px;padding:6px 4px;cursor:pointer;color:var(--tex3);font-size:10px;
+  border:none;background:none;transition:.15s}
+.bnav-item.active{color:var(--acc)}
+.bnav-item i{font-size:18px}
+/* Add bottom padding on mobile so content isn't hidden under bottom nav */
+@media(max-width:600px){
+  .content{padding-bottom:80px}
+}
+
 </style>
 </head>
 <body>
@@ -328,6 +369,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
       <div class="pin-display" id="pinDisplay">
         <div class="pin-dot" id="pd0"></div><div class="pin-dot" id="pd1"></div>
         <div class="pin-dot" id="pd2"></div><div class="pin-dot" id="pd3"></div>
+        <div class="pin-dot" id="pd4"></div><div class="pin-dot" id="pd5"></div>
       </div>
       <div class="pin-pad" id="pinPad">
         <div class="pin-key" data-key="1">1</div><div class="pin-key" data-key="2">2</div><div class="pin-key" data-key="3">3</div>
@@ -355,6 +397,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
       <div class="nav-item" onclick="showSection('transacciones')"><i class="fa-solid fa-arrow-right-arrow-left"></i><span>Transacciones</span></div>
       <div class="nav-item" onclick="showSection('presupuesto')"><i class="fa-solid fa-sliders"></i><span>Presupuesto</span></div>
       <div class="nav-item" onclick="showSection('gastosFijos')"><i class="fa-solid fa-calendar-check"></i><span>Gastos Fijos</span></div>
+      <div class="nav-item" onclick="showSection('ingresosFijos')"><i class="fa-solid fa-calendar-plus"></i><span>Ingresos Fijos</span></div>
       <div class="nav-item" onclick="showSection('deudas')"><i class="fa-solid fa-credit-card"></i><span>Deudas</span></div>
       <div class="nav-item" onclick="showSection('metas')"><i class="fa-solid fa-bullseye"></i><span>Metas de Ahorro</span></div>
       <div class="nav-sep"></div>
@@ -441,6 +484,16 @@ tr:hover td{background:rgba(255,255,255,.02)}
         </div>
         <div class="grid-3" id="fixedSummary"></div>
         <div class="card"><div id="fixedList"></div></div>
+      </div>
+
+      <!-- INGRESOS FIJOS -->
+      <div id="sec-ingresosFijos" class="section" style="display:none">
+        <div class="section-header">
+          <h2 style="font-size:18px">Ingresos Fijos Recurrentes</h2>
+          <button class="btn btn-primary" onclick="openModal('modalIngFijo')"><i class="fa-solid fa-plus"></i> Agregar</button>
+        </div>
+        <div class="grid-3" id="ingFixedSummary"></div>
+        <div class="card"><div id="ingFixedList"></div></div>
       </div>
 
       <!-- DEUDAS -->
@@ -575,6 +628,35 @@ tr:hover td{background:rgba(255,255,255,.02)}
   </div>
 </div>
 
+<div id="modalIngFijo" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="modal-header"><h3>Ingreso Fijo Recurrente</h3><button class="btn btn-ghost" style="padding:4px 8px" onclick="closeModal('modalIngFijo')"><i class="fa-solid fa-x"></i></button></div>
+    <div class="modal-body">
+      <input type="hidden" id="ingFijoEditId">
+      <div class="form-row">
+        <div class="form-group"><label>Nombre</label><input type="text" id="ingFijoNombre" placeholder="Ej: Salario, Arriendo..."></div>
+        <div class="form-group"><label>Monto ($)</label><input type="number" id="ingFijoMonto" placeholder="0" step="1000" min="0"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Día esperado de recibo</label><input type="number" id="ingFijoDia" min="1" max="31" placeholder="1-31"></div>
+        <div class="form-group"><label>Categoría</label>
+          <select id="ingFijoCat">
+            <option value="Salario">Salario</option>
+            <option value="Freelance">Freelance</option>
+            <option value="Negocio">Negocio</option>
+            <option value="Arriendos">Arriendos</option>
+            <option value="Inversiones">Inversiones</option>
+            <option value="Bonos">Bonos</option>
+            <option value="Remesas">Remesas</option>
+            <option value="Otros ingresos">Otros ingresos</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalIngFijo')">Cancelar</button><button class="btn btn-primary" onclick="saveIngFijo()">Guardar</button></div>
+  </div>
+</div>
+
 <div id="modalDeuda" class="modal-overlay" style="display:none">
   <div class="modal">
     <div class="modal-header"><h3 id="deudaTitleModal">Nueva Deuda</h3><button class="btn btn-ghost" style="padding:4px 8px" onclick="closeModal('modalDeuda')"><i class="fa-solid fa-x"></i></button></div>
@@ -662,7 +744,7 @@ const CAT_CLASS = {
 const CHART_COLORS = ['#10b981','#3b82f6','#8b5cf6','#f59e0b','#ef4444','#14b8a6','#f97316','#ec4899','#06b6d4','#84cc16','#a855f7','#6366f1'];
 const SECTIONS = {
   dashboard:'Dashboard', transacciones:'Transacciones', presupuesto:'Presupuesto',
-  gastosFijos:'Gastos Fijos', deudas:'Deudas', metas:'Metas de Ahorro',
+  gastosFijos:'Gastos Fijos', ingresosFijos:'Ingresos Fijos', deudas:'Deudas', metas:'Metas de Ahorro',
   reportes:'Reportes', salud:'Salud Financiera'
 };
 
@@ -695,19 +777,19 @@ function setSyncStatus(s) {
 
 // ── FRESH DATA STRUCTURE ───────────────────────────────────
 function freshData() {
-  return { transactions:[], budgets:{}, fixedExpenses:[], debts:[], goals:[] };
+  return { transactions:[], budgets:{}, fixedExpenses:[], ingresosFijos:[], debts:[], goals:[] };
 }
 function normalizeData(d) {
   if (!d) return freshData();
   // Ensure arrays are actually arrays (Firestore may return objects)
-  ['transactions','fixedExpenses','debts','goals'].forEach(k => {
+  ['transactions','fixedExpenses','ingresosFijos','debts','goals'].forEach(k => {
     if (!Array.isArray(d[k])) {
       d[k] = d[k] ? Object.values(d[k]) : [];
     }
   });
   if (!d.budgets || Array.isArray(d.budgets)) d.budgets = {};
   // Remove any null items that might have crept in
-  ['transactions','fixedExpenses','debts','goals'].forEach(k => {
+  ['transactions','fixedExpenses','ingresosFijos','debts','goals'].forEach(k => {
     d[k] = d[k].filter(x => x && typeof x === 'object');
   });
   return d;
@@ -786,18 +868,18 @@ function flashPinKey(k) {
 function pinKey(k) {
   if (k === 'del')     { pinBuffer = pinBuffer.slice(0, -1); }
   else if (k === 'ok') { submitPin(); return; }
-  else if (pinBuffer.length < 4) { pinBuffer += k; }
+  else if (pinBuffer.length < 6) { pinBuffer += k; }
   updatePinDisplay();
-  if (pinBuffer.length === 4) setTimeout(submitPin, 200);
+  if (pinBuffer.length === 6) setTimeout(submitPin, 200);
 }
 
 function updatePinDisplay() {
-  for (let i = 0; i < 4; i++)
+  for (let i = 0; i < 6; i++)
     document.getElementById('pd'+i).classList.toggle('filled', i < pinBuffer.length);
 }
 
 async function submitPin() {
-  if (pinBuffer.length !== 4) return;
+  if (pinBuffer.length !== 6) return;
   const msg = document.getElementById('pinMsg');
   msg.className = 'pin-msg ok'; msg.textContent = 'Verificando...';
   const fbProfile = await window._fb.loadProfile(currentProfile);
@@ -827,6 +909,7 @@ async function enterApp(profileData) {
   document.getElementById('currentMonth').textContent =
     new Date().toLocaleDateString('es-CO', {month:'long', year:'numeric'});
   syncFixedExpenseTransactions();
+  syncIngFijoTransactions();
   syncDebtTransactions();
   populateFilters();
   showSection('dashboard');
@@ -911,6 +994,35 @@ function syncDebtTransactions() {
   if (changed) saveData();
 }
 
+// ── AUTO-SYNC: INGRESOS FIJOS → TRANSACTIONS ──────────────
+function syncIngFijoTransactions() {
+  if (!data) return;
+  const mon = currentMonthStr();
+  let changed = false;
+  (data.ingresosFijos || []).forEach(f => {
+    if (!f.active) return;
+    const recibKey = `ingrecib_${mon}_${f.id}`;
+    const txKey    = `ingtx_${mon}_${f.id}`;
+    const txId     = `auto_ing_${f.id}_${mon}`;
+    if (data[recibKey] && !data[txKey]) {
+      if (!data.transactions.find(t => t.id === txId)) {
+        data.transactions.push({
+          id: txId, type:'ingreso', date: today(),
+          desc: `${f.name} (ingreso fijo)`, amount: f.amount,
+          cat: f.cat || 'Salario', method:'transferencia',
+          note:'Generado automáticamente desde Ingresos Fijos', auto:true
+        });
+      }
+      data[txKey] = true; changed = true;
+    }
+    if (!data[recibKey] && data[txKey]) {
+      data.transactions = data.transactions.filter(t => t.id !== txId);
+      delete data[txKey]; changed = true;
+    }
+  });
+  if (changed) saveData();
+}
+
 // ── MORA ACCRUAL (live interest on overdue debts) ──────────
 function calcDebtMoraLive(d) {
   if (!d.vence || !d.tasa) return 0;
@@ -933,13 +1045,20 @@ function showSection(sec) {
     const nav = document.querySelector(`.nav-item[onclick="showSection('${s}')"]`);
     if (nav) nav.classList.toggle('active', s===sec);
   });
+  // Update bottom nav highlights
+  document.querySelectorAll('.bnav-item').forEach(b => {
+    const fn = b.getAttribute('onclick')||'';
+    b.classList.toggle('active', fn.includes(`'${sec}'`));
+  });
   document.getElementById('topbarTitle').textContent = SECTIONS[sec] || sec;
   refreshCurrentSection();
 }
+function showMoreMenu() { document.getElementById('moreSheet').style.display='flex'; }
+function closeMás()     { document.getElementById('moreSheet').style.display='none'; }
 function refreshCurrentSection() {
   if (!data) return;
   ({dashboard:renderDashboard, transacciones:renderTransTable, presupuesto:renderPresupuesto,
-    gastosFijos:renderFixedExpenses, deudas:renderDeudas, metas:renderMetas,
+    gastosFijos:renderFixedExpenses, ingresosFijos:renderIngFijos, deudas:renderDeudas, metas:renderMetas,
     reportes:renderReportes, salud:renderSalud})[currentSection]?.();
 }
 
@@ -1096,6 +1215,11 @@ function renderDashboard() {
   const fxPaid   = fxActive.filter(f=>data[`paid_${mon}_${f.id}`]).length;
   const fxTotal  = fxActive.length;
   const fxPend   = fxActive.filter(f=>!data[`paid_${mon}_${f.id}`]).reduce((s,f)=>s+f.amount,0);
+  // Ingresos fijos
+  const ifActive  = (data.ingresosFijos||[]).filter(f=>f.active);
+  const ifRecib   = ifActive.filter(f=>data[`ingrecib_${mon}_${f.id}`]).length;
+  const ifTotal   = ifActive.length;
+  const ifPend    = ifActive.filter(f=>!data[`ingrecib_${mon}_${f.id}`]).reduce((s,f)=>s+f.amount,0);
   // Debts
   const debts     = data.debts||[];
   const debtMora  = debts.reduce((s,d)=>s+calcDebtMoraLive(d),0);
@@ -1111,11 +1235,11 @@ function renderDashboard() {
   // Inject connected panel above charts
   const panel = document.getElementById('dash-connected');
   if (panel) panel.innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">
-      <div class="card" style="cursor:pointer" onclick="showSection('gastosFijos')">
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px">
+      <div class="card" style="cursor:pointer;grid-column:span 1" onclick="showSection('gastosFijos')">
         <div class="card-title"><i class="fa-solid fa-calendar-check" style="color:var(--acc);margin-right:4px"></i>Gastos Fijos</div>
-        <div style="font-size:20px;font-weight:700;margin-top:4px">${fxPaid}/${fxTotal} pagados</div>
-        <div style="font-size:12px;color:var(--red);margin-top:2px">${fxPend>0?`Pendiente: ${fmtUSD(fxPend)}`:''}</div>
+        <div style="font-size:20px;font-weight:700;margin-top:4px">\${fxPaid}/\${fxTotal} pagados</div>
+        <div style="font-size:12px;color:var(--red);margin-top:2px">\${fxPend>0?`Pendiente: \${fmtUSD(fxPend)}`:''}</div>
       </div>
       <div class="card" style="cursor:pointer" onclick="showSection('deudas')">
         <div class="card-title"><i class="fa-solid fa-credit-card" style="color:var(--yel);margin-right:4px"></i>Deudas</div>
@@ -1305,6 +1429,83 @@ function editFijo(id) {
   document.getElementById('fijoCat').value=f.cat; openModal('modalFijo');
 }
 function deleteFijo(id) { if(!confirm('¿Eliminar?'))return; data.fixedExpenses=data.fixedExpenses.filter(x=>x.id!==id); saveData();renderFixedExpenses(); }
+
+// ── INGRESOS FIJOS ─────────────────────────────────────────
+function saveIngFijo() {
+  const id   = document.getElementById('ingFijoEditId').value;
+  const name = document.getElementById('ingFijoNombre').value.trim();
+  const amt  = parseFloat(document.getElementById('ingFijoMonto').value) || 0;
+  if (!name || !amt) { alert('Completa nombre y monto.'); return; }
+  const f = { id: id||Date.now().toString(), name, amount:amt,
+    dueDay:parseInt(document.getElementById('ingFijoDia').value)||1,
+    cat:document.getElementById('ingFijoCat').value, active:true };
+  if (!data.ingresosFijos) data.ingresosFijos = [];
+  if (id) { const i=data.ingresosFijos.findIndex(x=>x.id===id); if(i>=0)data.ingresosFijos[i]=f; else data.ingresosFijos.push(f); }
+  else data.ingresosFijos.push(f);
+  saveData(); closeModal('modalIngFijo'); document.getElementById('ingFijoEditId').value=''; renderIngFijos();
+}
+function renderIngFijos() {
+  if (!data.ingresosFijos) data.ingresosFijos = [];
+  const td = new Date().getDate();
+  const mon = currentMonthStr();
+  const active = data.ingresosFijos.filter(f=>f.active);
+  const totalIng   = active.reduce((s,f)=>s+f.amount,0);
+  const recibCount = active.filter(f=>data[`ingrecib_${mon}_${f.id}`]).length;
+  const pendTotal  = active.filter(f=>!data[`ingrecib_${mon}_${f.id}`]).reduce((s,f)=>s+f.amount,0);
+  document.getElementById('ingFixedSummary').innerHTML =
+    `<div class="card"><div class="card-title">Total ingresos fijos</div><div class="card-val green">${fmtUSD(totalIng)}</div></div>
+     <div class="card"><div class="card-title">Recibidos este mes</div><div class="card-val green">${recibCount}/${active.length}</div></div>
+     <div class="card"><div class="card-title">Por recibir</div><div class="card-val yellow">${fmtUSD(pendTotal)}</div></div>`;
+  const list = document.getElementById('ingFixedList');
+  if (!data.ingresosFijos.length) { list.innerHTML=`<div class="empty-state"><i class="fa-solid fa-calendar-plus"></i><p>Sin ingresos fijos. ¡Agrega el primero!</p></div>`; return; }
+  list.innerHTML = data.ingresosFijos.map(f => {
+    const recib = !!data[`ingrecib_${mon}_${f.id}`];
+    const diff  = f.dueDay - td;
+    let statusText = `Día ${f.dueDay}`;
+    let statusColor = 'var(--tex3)';
+    if (recib) { statusText='Recibido'; statusColor='var(--acc)'; }
+    else if (diff < 0) { statusText=`Retrasado ${Math.abs(diff)}d`; statusColor='var(--yel)'; }
+    else if (diff <= 3) { statusText=`En ${diff}d`; statusColor='var(--acc2)'; }
+    return `<div class="fixed-item">
+      <label class="fixed-toggle">
+        <input type="checkbox" ${f.active?'checked':''} onchange="toggleIngFijo('${f.id}',this.checked)">
+        <span class="toggle-slider"></span>
+      </label>
+      <div class="fixed-info">
+        <div class="fixed-name">${f.name} <span style="font-size:11px;color:var(--tex3)">${f.cat}</span></div>
+        <div style="font-size:12px;color:var(--tex3)">${fmtUSD(f.amount)}/mes · Día ${f.dueDay} · <span style="color:${statusColor}">${statusText}</span></div>
+      </div>
+      <div class="status-dot" style="background:${recib?'var(--acc)':diff<=0?'var(--yel)':'var(--bor2)'}"></div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;color:${recib?'var(--acc)':'var(--tex3)'}">
+        <input type="checkbox" ${recib?'checked':''} onchange="markIngFijoRecibido('${f.id}',this.checked)" style="accent-color:var(--acc)"> Recibido
+      </label>
+      <button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="editIngFijo('${f.id}')"><i class="fa-solid fa-pen"></i></button>
+      <button class="btn btn-danger" style="padding:4px 8px;font-size:12px" onclick="deleteIngFijo('${f.id}')"><i class="fa-solid fa-trash"></i></button>
+    </div>`;
+  }).join('');
+}
+function toggleIngFijo(id,val) {
+  const f=data.ingresosFijos.find(x=>x.id===id); if(f){f.active=val;saveData();renderIngFijos();}
+}
+function markIngFijoRecibido(id,val) {
+  const key=`ingrecib_${currentMonthStr()}_${id}`;
+  if(val) data[key]=true; else delete data[key];
+  syncIngFijoTransactions(); saveData(); renderIngFijos();
+}
+function editIngFijo(id) {
+  const f=data.ingresosFijos.find(x=>x.id===id); if(!f)return;
+  document.getElementById('ingFijoEditId').value=f.id;
+  document.getElementById('ingFijoNombre').value=f.name;
+  document.getElementById('ingFijoMonto').value=f.amount;
+  document.getElementById('ingFijoDia').value=f.dueDay;
+  document.getElementById('ingFijoCat').value=f.cat;
+  openModal('modalIngFijo');
+}
+function deleteIngFijo(id) {
+  if(!confirm('¿Eliminar?'))return;
+  data.ingresosFijos=data.ingresosFijos.filter(x=>x.id!==id);
+  saveData(); renderIngFijos();
+}
 
 // ── DEUDAS ─────────────────────────────────────────────────
 function saveDeuda() {
@@ -1565,19 +1766,105 @@ function mRow(lbl,val,s,icon){
 // ── EXPORT CSV ─────────────────────────────────────────────
 function exportCSV() {
   if (!data?.transactions?.length) { alert('No hay transacciones para exportar.'); return; }
-  const rows = [['Fecha','Descripción','Tipo','Categoría','Monto','Método','Notas']];
-  data.transactions.slice().sort((a,b)=>b.date.localeCompare(a.date))
-    .forEach(t=>rows.push([t.date,t.desc,t.type,t.cat,t.amount,t.method||'',t.note||'']));
-  const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const a = Object.assign(document.createElement('a'),{
-    href: URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'})),
-    download: `finanzas_${currentProfile}_${currentMonthStr()}.csv`
+  const mon = currentMonthStr();
+  const sep = ';'; // semicolon for Excel Spanish locale compatibility
+  const q   = v => { const s=String(v==null?'':v); return /[;,"\n\r]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+  const row = arr => arr.map(q).join(sep);
+
+  const lines = [];
+
+  // ── Transactions ──
+  lines.push(row(['== TRANSACCIONES ==']));
+  lines.push(row(['Fecha','Descripción','Tipo','Categoría','Monto ($)','Método','Notas','Auto']));
+  data.transactions.slice().sort((a,b)=>b.date.localeCompare(a.date)).forEach(t => {
+    lines.push(row([t.date, t.desc, t.type==='ingreso'?'Ingreso':'Gasto',
+      t.cat, t.amount, t.method||'', t.note||'', t.auto?'Sí':'No']));
   });
-  a.click(); URL.revokeObjectURL(a.href);
+  const ti = data.transactions.filter(t=>t.type==='ingreso').reduce((s,t)=>s+t.amount,0);
+  const tg = data.transactions.filter(t=>t.type==='gasto').reduce((s,t)=>s+t.amount,0);
+  lines.push(row([]));
+  lines.push(row(['','','','Total ingresos',ti,'','','']));
+  lines.push(row(['','','','Total gastos',tg,'','','']));
+  lines.push(row(['','','','Balance neto',ti-tg,'','','']));
+
+  // ── Deudas ──
+  lines.push(row([]));
+  lines.push(row(['== DEUDAS ==']));
+  lines.push(row(['Nombre','Tipo','Saldo ($)','Cuota/mes ($)','Tasa anual (%)','Vencimiento','Mora acumulada ($)']));
+  (data.debts||[]).forEach(d => {
+    lines.push(row([d.name,d.tipo,d.total,d.cuota,d.tasa,d.vence||'',Math.round(calcDebtMoraLive(d))]));
+  });
+
+  // ── Gastos Fijos ──
+  lines.push(row([]));
+  lines.push(row(['== GASTOS FIJOS ==']));
+  lines.push(row(['Nombre','Categoría','Monto ($)','Día vencimiento','Activo','Pagado este mes']));
+  (data.fixedExpenses||[]).forEach(f => {
+    lines.push(row([f.name,f.cat,f.amount,f.dueDay,f.active?'Sí':'No',data[`paid_${mon}_${f.id}`]?'Sí':'No']));
+  });
+
+  // ── Ingresos Fijos ──
+  lines.push(row([]));
+  lines.push(row(['== INGRESOS FIJOS ==']));
+  lines.push(row(['Nombre','Categoría','Monto ($)','Día esperado','Activo','Recibido este mes']));
+  (data.ingresosFijos||[]).forEach(f => {
+    lines.push(row([f.name,f.cat,f.amount,f.dueDay,f.active?'Sí':'No',data[`ingrecib_${mon}_${f.id}`]?'Sí':'No']));
+  });
+
+  // ── Metas ──
+  lines.push(row([]));
+  lines.push(row(['== METAS DE AHORRO ==']));
+  lines.push(row(['Nombre','Objetivo ($)','Ahorrado ($)','Progreso (%)','Fecha límite']));
+  (data.goals||[]).forEach(g => {
+    lines.push(row([g.name,g.target,g.current,Math.round(g.current/g.target*100)+'%',g.fecha||'']));
+  });
+
+  // ── Presupuestos ──
+  lines.push(row([]));
+  lines.push(row(['== PRESUPUESTOS (mes actual) ==']));
+  lines.push(row(['Categoría','Límite ($)','Gastado ($)','Diferencia ($)','Estado']));
+  const txsMes = (data.transactions||[]).filter(t=>getMonth(t.date)===mon&&t.type==='gasto');
+  Object.entries(data.budgets||{}).forEach(([cat,lim]) => {
+    const sp = txsMes.filter(t=>t.cat===cat).reduce((s,t)=>s+t.amount,0);
+    lines.push(row([cat,lim,sp,lim-sp,sp>lim?'Excedido':sp>lim*.85?'Cerca':'OK']));
+  });
+
+  const csv  = '\uFEFF' + lines.join('\r\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = `FinanzasPro_${currentProfile}_${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 300);
 }
 
 // ── INIT ───────────────────────────────────────────────────
 document.getElementById('transDate').value = today();
 </script>
+<div id="bottomNav">
+  <button class="bnav-item" onclick="showSection('dashboard')"><i class="fa-solid fa-gauge"></i>Inicio</button>
+  <button class="bnav-item" onclick="showSection('transacciones')"><i class="fa-solid fa-arrow-right-arrow-left"></i>Movimientos</button>
+  <button class="bnav-item" onclick="showSection('presupuesto')"><i class="fa-solid fa-sliders"></i>Presupuesto</button>
+  <button class="bnav-item" onclick="showSection('gastosFijos')"><i class="fa-solid fa-calendar-check"></i>Fijos</button>
+  <button class="bnav-item" onclick="showMoreMenu()"><i class="fa-solid fa-ellipsis"></i>Más</button>
+</div>
+
+<!-- Mobile "Más" sheet -->
+<div id="moreSheet" style="display:none;position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.6)" onclick="closeMás()">
+  <div style="position:absolute;bottom:0;left:0;right:0;background:var(--bg2);border-radius:var(--rad) var(--rad) 0 0;padding:20px;padding-bottom:max(20px,env(safe-area-inset-bottom))" onclick="event.stopPropagation()">
+    <div style="width:36px;height:4px;background:var(--bor2);border-radius:2px;margin:0 auto 20px"></div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+      <div onclick="showSection('ingresosFijos');closeMás()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 6px;background:var(--bg3);border-radius:var(--rad2);cursor:pointer;font-size:11px;color:var(--tex2)"><i class="fa-solid fa-calendar-plus" style="font-size:20px;color:var(--acc2)"></i>Ing. Fijos</div>
+      <div onclick="showSection('deudas');closeMás()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 6px;background:var(--bg3);border-radius:var(--rad2);cursor:pointer;font-size:11px;color:var(--tex2)"><i class="fa-solid fa-credit-card" style="font-size:20px;color:var(--yel)"></i>Deudas</div>
+      <div onclick="showSection('metas');closeMás()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 6px;background:var(--bg3);border-radius:var(--rad2);cursor:pointer;font-size:11px;color:var(--tex2)"><i class="fa-solid fa-bullseye" style="font-size:20px;color:var(--pur)"></i>Metas</div>
+      <div onclick="showSection('reportes');closeMás()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 6px;background:var(--bg3);border-radius:var(--rad2);cursor:pointer;font-size:11px;color:var(--tex2)"><i class="fa-solid fa-chart-pie" style="font-size:20px;color:var(--blu)"></i>Reportes</div>
+      <div onclick="showSection('salud');closeMás()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 6px;background:var(--bg3);border-radius:var(--rad2);cursor:pointer;font-size:11px;color:var(--tex2)"><i class="fa-solid fa-heart-pulse" style="font-size:20px;color:var(--red)"></i>Salud</div>
+      <div onclick="exportCSV();closeMás()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 6px;background:var(--bg3);border-radius:var(--rad2);cursor:pointer;font-size:11px;color:var(--tex2)"><i class="fa-solid fa-download" style="font-size:20px;color:var(--acc)"></i>CSV</div>
+      <div onclick="lockApp();closeMás()" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 6px;background:var(--bg3);border-radius:var(--rad2);cursor:pointer;font-size:11px;color:var(--tex2)"><i class="fa-solid fa-lock" style="font-size:20px;color:var(--tex3)"></i>Salir</div>
+    </div>
+  </div>
+</div>
 </body>
 </html>

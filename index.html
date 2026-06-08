@@ -676,16 +676,54 @@ tr:hover td{background:rgba(255,255,255,.02)}
       <input type="hidden" id="deudaEditId">
       <div class="form-row">
         <div class="form-group"><label>Nombre / Acreedor</label><input type="text" id="deudaNombre" placeholder="Ej: Banco Bogotá"></div>
-        <div class="form-group"><label>Saldo total ($)</label><input type="number" id="deudaTotal" placeholder="0" step="1000" min="0"></div>
+        <div class="form-group"><label>Saldo total ($)</label><input type="number" id="deudaTotal" placeholder="0" step="1000" min="0" oninput="previewDeudaResumen()"></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label>Cuota mensual ($)</label><input type="number" id="deudaCuota" placeholder="0" step="1000" min="0"></div>
-        <div class="form-group"><label>Tasa de interés anual (%)</label><input type="number" id="deudaTasa" placeholder="0" step="0.1" min="0"></div>
+        <div class="form-group"><label>Tasa de interés anual (%)</label><input type="number" id="deudaTasa" placeholder="0" step="0.1" min="0" oninput="previewDeudaResumen()"></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label>Día de pago mensual</label><input type="number" id="deudaDiaPago" min="1" max="31" placeholder="Ej: 15"></div>
         <div class="form-group"><label>Tipo</label>
           <select id="deudaTipo"><option value="credito">Tarjeta de crédito</option><option value="prestamo">Préstamo personal</option><option value="hipoteca">Hipoteca</option><option value="vehiculo">Crédito vehículo</option><option value="libranza">Libranza</option><option value="otro">Otro</option></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Fecha de inicio <span style="color:var(--tex3);font-weight:400">(opcional)</span></label>
+          <input type="date" id="deudaFechaInicio" oninput="previewDeudaResumen()">
+          <div style="font-size:11px;color:var(--tex3);margin-top:4px">Fecha en que adquiriste la deuda</div>
+        </div>
+        <div class="form-group">
+          <label>¿Ya has pagado algo? ($) <span style="color:var(--tex3);font-weight:400">(opcional)</span></label>
+          <input type="number" id="deudaYaPagado" placeholder="0" step="1000" min="0" oninput="previewDeudaResumen()">
+          <div style="font-size:11px;color:var(--tex3);margin-top:4px">Cuotas o abonos ya realizados antes de registrarla</div>
+        </div>
+      </div>
+      <!-- Preview resumen -->
+      <div id="deudaResumenPreview" style="display:none;background:var(--bg3);border:1px solid var(--bor);border-radius:var(--rad2);padding:14px;margin-bottom:4px">
+        <div style="font-size:12px;color:var(--tex3);margin-bottom:10px;font-weight:500;text-transform:uppercase;letter-spacing:.4px">Resumen calculado</div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">
+          <div>
+            <div style="font-size:11px;color:var(--tex3)">Capital original</div>
+            <div style="font-weight:700;font-size:15px" id="prevCapital">$0</div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--tex3)">Ya pagado</div>
+            <div style="font-weight:700;font-size:15px;color:var(--acc)" id="prevYaPagado">$0</div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--tex3)">Días desde inicio</div>
+            <div style="font-weight:700;font-size:15px" id="prevDias">—</div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--tex3)">Intereses acumulados</div>
+            <div style="font-weight:700;font-size:15px;color:var(--red)" id="prevIntereses">$0</div>
+          </div>
+          <div style="grid-column:1/-1;border-top:1px solid var(--bor);padding-top:8px;margin-top:4px">
+            <div style="font-size:11px;color:var(--tex3)">Saldo real a pagar hoy</div>
+            <div style="font-weight:700;font-size:20px;color:var(--red)" id="prevSaldoReal">$0</div>
+          </div>
         </div>
       </div>
     </div>
@@ -1076,10 +1114,10 @@ function syncIngFijoTransactions() {
 // ── MORA ACCRUAL (live interest on overdue debts) ──────────
 function calcDebtMoraLive(d) {
   if (!d.diaPago || !d.tasa) return 0;
-  const saldo = Math.max(0, d.total - (d.saldoPagado||0));
+  const totalReal = d.total + (d.interesesIniciales||0);
+  const saldo     = Math.max(0, totalReal - (d.saldoPagado||0));
   if (saldo <= 0) return 0;
-  // Check if current month's payment is overdue
-  const now = new Date();
+  const now     = new Date();
   const dueDate = new Date(now.getFullYear(), now.getMonth(), d.diaPago);
   if (now <= dueDate) return 0;
   const diffDays = Math.floor((now - dueDate) / (1000*60*60*24));
@@ -1583,30 +1621,84 @@ function saveDeuda() {
   const name  = document.getElementById('deudaNombre').value.trim();
   const total = parseFloat(document.getElementById('deudaTotal').value) || 0;
   if (!name || !total) { alert('Completa nombre y saldo total.'); return; }
+
+  const tasa        = parseFloat(document.getElementById('deudaTasa').value) || 0;
+  const fechaInicio = document.getElementById('deudaFechaInicio').value || '';
+  const yaPagado    = parseFloat(document.getElementById('deudaYaPagado').value) || 0;
+
+  // Calculate accrued interest from start date to today
+  let interesesAcumulados = 0;
+  if (fechaInicio && tasa) {
+    const inicio   = new Date(fechaInicio + 'T00:00:00');
+    const hoy      = new Date();
+    const diffDays = Math.max(0, Math.floor((hoy - inicio) / (1000*60*60*24)));
+    interesesAcumulados = total * (tasa / 100 / 360) * diffDays;
+  }
+
   const d = {
-    id:      id || Date.now().toString(),
+    id:                  id || Date.now().toString(),
     name,
     total,
-    cuota:   parseFloat(document.getElementById('deudaCuota').value)  || 0,
-    tasa:    parseFloat(document.getElementById('deudaTasa').value)   || 0,
-    diaPago: parseInt(document.getElementById('deudaDiaPago').value)  || 1,
-    tipo:    document.getElementById('deudaTipo').value,
-    // saldoPagado tracks total amount paid (sum of all payments)
-    saldoPagado: 0
+    cuota:               parseFloat(document.getElementById('deudaCuota').value) || 0,
+    tasa,
+    diaPago:             parseInt(document.getElementById('deudaDiaPago').value) || 1,
+    tipo:                document.getElementById('deudaTipo').value,
+    fechaInicio,
+    interesesIniciales:  Math.round(interesesAcumulados),
+    saldoPagado:         yaPagado  // pre-load what they've already paid
   };
-  // Preserve existing saldoPagado if editing
+
   if (id) {
     const existing = data.debts.find(x=>x.id===id);
-    if (existing) d.saldoPagado = existing.saldoPagado || 0;
+    if (existing && !document.getElementById('deudaYaPagado').value) {
+      d.saldoPagado = existing.saldoPagado || 0; // preserve if not editing
+    }
     const i = data.debts.findIndex(x=>x.id===id);
     if (i>=0) data.debts[i]=d; else data.debts.push(d);
   } else {
     data.debts.push(d);
   }
+
   saveData(); closeModal('modalDeuda');
   document.getElementById('deudaEditId').value='';
   document.getElementById('deudaTitleModal').textContent='Nueva Deuda';
+  resetDeudaModal();
   renderDeudas();
+}
+
+function resetDeudaModal() {
+  ['deudaNombre','deudaTotal','deudaCuota','deudaTasa','deudaFechaInicio','deudaYaPagado'].forEach(id => {
+    const el = document.getElementById(id); if(el) el.value='';
+  });
+  document.getElementById('deudaDiaPago').value='';
+  document.getElementById('deudaResumenPreview').style.display='none';
+}
+
+function previewDeudaResumen() {
+  const total      = parseFloat(document.getElementById('deudaTotal').value) || 0;
+  const tasa       = parseFloat(document.getElementById('deudaTasa').value)  || 0;
+  const fechaInicio= document.getElementById('deudaFechaInicio').value || '';
+  const yaPagado   = parseFloat(document.getElementById('deudaYaPagado').value) || 0;
+  const preview    = document.getElementById('deudaResumenPreview');
+
+  if (!total && !fechaInicio) { preview.style.display='none'; return; }
+  preview.style.display='block';
+
+  let dias=0, intereses=0;
+  if (fechaInicio) {
+    const inicio = new Date(fechaInicio+'T00:00:00');
+    const hoy    = new Date();
+    dias         = Math.max(0, Math.floor((hoy-inicio)/(1000*60*60*24)));
+    if (tasa && total) intereses = Math.round(total*(tasa/100/360)*dias);
+  }
+
+  const saldoReal = Math.max(0, total - yaPagado + intereses);
+
+  document.getElementById('prevCapital').textContent    = fmtUSD(total);
+  document.getElementById('prevYaPagado').textContent   = fmtUSD(yaPagado);
+  document.getElementById('prevDias').textContent       = fechaInicio ? dias+' días' : '—';
+  document.getElementById('prevIntereses').textContent  = fmtUSD(intereses);
+  document.getElementById('prevSaldoReal').textContent  = fmtUSD(saldoReal);
 }
 
 
@@ -1618,11 +1710,14 @@ function renderDeudas() {
 
   // Compute derived fields
   debts.forEach(d => {
-    d._saldoPagado  = d.saldoPagado || 0;
-    d._saldoActual  = Math.max(0, d.total - d._saldoPagado);
-    d._cuotasTotal  = d.cuota > 0 ? Math.ceil(d.total / d.cuota) : null;
-    d._cuotasPagadas= d.cuota > 0 ? Math.floor(d._saldoPagado / d.cuota) : 0;
-    d._pct          = d._cuotasTotal ? Math.min(Math.round(d._cuotasPagadas/d._cuotasTotal*100),100) : 0;
+    d._saldoPagado   = d.saldoPagado || 0;
+    d._interesesIni  = d.interesesIniciales || 0;
+    // Real total = original + initial accrued interest
+    d._totalReal     = d.total + d._interesesIni;
+    d._saldoActual   = Math.max(0, d._totalReal - d._saldoPagado);
+    d._cuotasTotal   = d.cuota > 0 ? Math.ceil(d._totalReal / d.cuota) : null;
+    d._cuotasPagadas = d.cuota > 0 ? Math.floor(d._saldoPagado / d.cuota) : 0;
+    d._pct           = d._cuotasTotal ? Math.min(Math.round(d._cuotasPagadas/d._cuotasTotal*100),100) : 0;
   });
 
   const totalSaldo = debts.reduce((s,d)=>s+d._saldoActual,0);
@@ -1701,10 +1796,16 @@ function renderDeudas() {
             <span style="font-size:11px;color:var(--tex3)">${d.tipo}</span>
             <span style="font-size:11px;color:${statusColor};margin-left:6px">${statusText}</span>
           </div>
-          <div style="font-size:12px;color:var(--tex3);margin-top:2px">Tasa: ${d.tasa}% anual</div>
+          <div style="font-size:12px;color:var(--tex3);margin-top:2px">
+            Tasa: ${d.tasa}% anual
+            ${d.fechaInicio?`· Desde: ${d.fechaInicio}`:''}
+          </div>
+          ${d._interesesIni>0?`<div style="margin-top:4px;font-size:11px;padding:3px 8px;background:rgba(239,68,68,.1);border-radius:4px;display:inline-block;color:var(--red)"><i class="fa-solid fa-clock-rotate-left"></i> Intereses previos incluidos: <b>${fmtUSD(d._interesesIni)}</b></div>`:''}
           <div style="margin-top:8px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
             <div><div style="font-size:11px;color:var(--tex3)">Saldo restante</div>
               <div style="font-weight:700;color:var(--red);font-size:16px">${fmtUSD(saldo)}</div></div>
+            <div><div style="font-size:11px;color:var(--tex3)">Capital original</div>
+              <div style="font-weight:500;color:var(--tex2);font-size:14px">${fmtUSD(d.total)}</div></div>
             <div><div style="font-size:11px;color:var(--tex3)">Cuota sugerida</div>
               <div style="font-weight:600;color:var(--yel);font-size:16px">${fmtUSD(d.cuota)}</div></div>
             ${d._cuotasTotal?`<div><div style="font-size:11px;color:var(--tex3)">Cuotas restantes</div>
@@ -1817,7 +1918,11 @@ function editDeuda(id) {
   document.getElementById('deudaTasa').value=d.tasa;
   document.getElementById('deudaDiaPago').value=d.diaPago||1;
   document.getElementById('deudaTipo').value=d.tipo||'prestamo';
+  document.getElementById('deudaFechaInicio').value=d.fechaInicio||'';
+  document.getElementById('deudaYaPagado').value=d.saldoPagado||0;
+  document.getElementById('deudaResumenPreview').style.display='none';
   openModal('modalDeuda');
+  previewDeudaResumen();
 }
 function deleteDeuda(id) { if(!confirm('¿Eliminar?'))return; data.debts=data.debts.filter(x=>x.id!==id); saveData();renderDeudas(); }
 function calcularMora() {

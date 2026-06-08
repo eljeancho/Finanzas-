@@ -683,7 +683,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
         <div class="form-group"><label>Tasa de interés anual (%)</label><input type="number" id="deudaTasa" placeholder="0" step="0.1" min="0"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Fecha vencimiento</label><input type="date" id="deudaVence"></div>
+        <div class="form-group"><label>Día de pago mensual</label><input type="number" id="deudaDiaPago" min="1" max="31" placeholder="Ej: 15"></div>
         <div class="form-group"><label>Tipo</label>
           <select id="deudaTipo"><option value="credito">Tarjeta de crédito</option><option value="prestamo">Préstamo personal</option><option value="hipoteca">Hipoteca</option><option value="vehiculo">Crédito vehículo</option><option value="libranza">Libranza</option><option value="otro">Otro</option></select>
         </div>
@@ -716,6 +716,36 @@ tr:hover td{background:rgba(255,255,255,.02)}
       </div>
     </div>
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modalMeta')">Cancelar</button><button class="btn btn-primary" onclick="saveMeta()">Guardar</button></div>
+  </div>
+</div>
+
+<div id="modalPagoDeuda" class="modal-overlay" style="display:none">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-header">
+      <h3>Registrar pago de cuota</h3>
+      <button class="btn btn-ghost" style="padding:4px 8px" onclick="closeModal('modalPagoDeuda')"><i class="fa-solid fa-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="pagoDeudaId">
+      <div style="background:var(--bg3);border-radius:var(--rad2);padding:12px;margin-bottom:16px">
+        <div style="font-size:12px;color:var(--tex3)">Deuda</div>
+        <div style="font-weight:600;font-size:15px" id="pagoDeudaNombre"></div>
+        <div style="font-size:12px;color:var(--tex3);margin-top:4px">Saldo restante: <span style="color:var(--red);font-weight:600" id="pagoDeudaSaldo"></span></div>
+      </div>
+      <div class="form-group" style="margin-bottom:14px">
+        <label>Monto a pagar ($)</label>
+        <input type="number" id="pagoDeudaMonto" placeholder="0" step="1000" min="0">
+        <div style="font-size:11px;color:var(--tex3);margin-top:4px" id="pagoDeudaHint"></div>
+      </div>
+      <div class="form-group">
+        <label>Notas (opcional)</label>
+        <input type="text" id="pagoDeudaNota" placeholder="Ej: Abono extra, pago doble...">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modalPagoDeuda')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarPagoDeuda()"><i class="fa-solid fa-check"></i> Confirmar pago</button>
+    </div>
   </div>
 </div>
 
@@ -1045,12 +1075,15 @@ function syncIngFijoTransactions() {
 
 // ── MORA ACCRUAL (live interest on overdue debts) ──────────
 function calcDebtMoraLive(d) {
-  if (!d.vence || !d.tasa) return 0;
-  const venceDate = new Date(d.vence + 'T00:00:00');
+  if (!d.diaPago || !d.tasa) return 0;
+  const saldo = Math.max(0, d.total - (d.saldoPagado||0));
+  if (saldo <= 0) return 0;
+  // Check if current month's payment is overdue
   const now = new Date();
-  if (now <= venceDate) return 0;
-  const diffDays = Math.floor((now - venceDate) / (1000*60*60*24));
-  return d.total * (d.tasa / 100 / 360) * diffDays;
+  const dueDate = new Date(now.getFullYear(), now.getMonth(), d.diaPago);
+  if (now <= dueDate) return 0;
+  const diffDays = Math.floor((now - dueDate) / (1000*60*60*24));
+  return saldo * (d.tasa / 100 / 360) * diffDays;
 }
 
 
@@ -1304,9 +1337,21 @@ function getAlerts() {
     if (!f.active) return;
     if (!data['paid_'+currentMonthStr()+'_'+f.id]) {
       const diff = f.dueDay - td;
-      if (diff < 0)      alerts.push({type:'red',    msg:`${f.name} — vencido hace ${Math.abs(diff)} días`});
-      else if (diff <= 3) alerts.push({type:'yellow', msg:`${f.name} — vence en ${diff} días`});
+      if (diff < 0)       alerts.push({type:'red',    msg:`💸 ${f.name} — vencido hace ${Math.abs(diff)} días`});
+      else if (diff === 0) alerts.push({type:'red',   msg:`💸 ${f.name} — ¡vence hoy!`});
+      else if (diff <= 3)  alerts.push({type:'yellow', msg:`💸 ${f.name} — vence en ${diff} días`});
     }
+  });
+  // Debt monthly payment alerts
+  (data.debts||[]).forEach(d => {
+    const saldo = Math.max(0, d.total-(d.saldoPagado||0));
+    if (saldo <= 0) return; // fully paid
+    if (data[`debtpaid_${currentMonthStr()}_${d.id}`]) return; // already paid this month
+    if (!d.diaPago) return;
+    const diff = d.diaPago - td;
+    if (diff < 0)       alerts.push({type:'red',    msg:`💳 ${d.name} — cuota vencida hace ${Math.abs(diff)} días`});
+    else if (diff === 0) alerts.push({type:'red',   msg:`💳 ${d.name} — ¡cuota vence hoy!`});
+    else if (diff <= 3)  alerts.push({type:'yellow', msg:`💳 ${d.name} — cuota vence en ${diff} días`});
   });
   const txs = (data.transactions||[]).filter(t=>getMonth(t.date)===currentMonthStr()&&t.type==='gasto');
   Object.entries(data.budgets||{}).forEach(([cat,limit]) => {
@@ -1534,47 +1579,60 @@ function deleteIngFijo(id) {
 
 // ── DEUDAS ─────────────────────────────────────────────────
 function saveDeuda() {
-  const id   = document.getElementById('deudaEditId').value;
-  const name = document.getElementById('deudaNombre').value.trim();
-  const total= parseFloat(document.getElementById('deudaTotal').value) || 0;
+  const id    = document.getElementById('deudaEditId').value;
+  const name  = document.getElementById('deudaNombre').value.trim();
+  const total = parseFloat(document.getElementById('deudaTotal').value) || 0;
   if (!name || !total) { alert('Completa nombre y saldo total.'); return; }
   const d = {
-    id:    id || Date.now().toString(),
+    id:      id || Date.now().toString(),
     name,
     total,
-    cuota: parseFloat(document.getElementById('deudaCuota').value) || 0,
-    tasa:  parseFloat(document.getElementById('deudaTasa').value)  || 0,
-    vence: document.getElementById('deudaVence').value  || '',
-    tipo:  document.getElementById('deudaTipo').value
+    cuota:   parseFloat(document.getElementById('deudaCuota').value)  || 0,
+    tasa:    parseFloat(document.getElementById('deudaTasa').value)   || 0,
+    diaPago: parseInt(document.getElementById('deudaDiaPago').value)  || 1,
+    tipo:    document.getElementById('deudaTipo').value,
+    // saldoPagado tracks total amount paid (sum of all payments)
+    saldoPagado: 0
   };
-  if (id) { const i=data.debts.findIndex(x=>x.id===id); if(i>=0)data.debts[i]=d; else data.debts.push(d); }
-  else data.debts.push(d);
-  saveData(); closeModal('modalDeuda'); document.getElementById('deudaEditId').value='';
+  // Preserve existing saldoPagado if editing
+  if (id) {
+    const existing = data.debts.find(x=>x.id===id);
+    if (existing) d.saldoPagado = existing.saldoPagado || 0;
+    const i = data.debts.findIndex(x=>x.id===id);
+    if (i>=0) data.debts[i]=d; else data.debts.push(d);
+  } else {
+    data.debts.push(d);
+  }
+  saveData(); closeModal('modalDeuda');
+  document.getElementById('deudaEditId').value='';
   document.getElementById('deudaTitleModal').textContent='Nueva Deuda';
   renderDeudas();
 }
+
+
 function renderDeudas() {
   const debts   = data.debts || [];
   const today_s = today();
   const mon     = currentMonthStr();
+  const todayDay = new Date().getDate();
 
-  // Recalculate saldo restante based on payments made
+  // Compute derived fields
   debts.forEach(d => {
-    const pagos = getDebtPayments(d.id);
-    d._saldoActual = Math.max(0, d.total - pagos * d.cuota);
-    d._pagos       = pagos;
-    d._cuotasTotal = d.cuota > 0 ? Math.ceil(d.total / d.cuota) : null;
+    d._saldoPagado  = d.saldoPagado || 0;
+    d._saldoActual  = Math.max(0, d.total - d._saldoPagado);
+    d._cuotasTotal  = d.cuota > 0 ? Math.ceil(d.total / d.cuota) : null;
+    d._cuotasPagadas= d.cuota > 0 ? Math.floor(d._saldoPagado / d.cuota) : 0;
+    d._pct          = d._cuotasTotal ? Math.min(Math.round(d._cuotasPagadas/d._cuotasTotal*100),100) : 0;
   });
 
-  const totalDeuda  = debts.reduce((s,d)=>s+d._saldoActual,0);
-  const totalCuota  = debts.reduce((s,d)=>s+d.cuota,0);
-  const totalMora   = debts.reduce((s,d)=>s+calcDebtMoraLive(d),0);
-  const vencidas    = debts.filter(d=>d.vence&&d.vence<today_s&&d._saldoActual>0).length;
+  const totalSaldo = debts.reduce((s,d)=>s+d._saldoActual,0);
+  const totalCuota = debts.reduce((s,d)=>s+(d._saldoActual>0?d.cuota:0),0);
+  const totalMora  = debts.reduce((s,d)=>s+calcDebtMoraLive(d),0);
 
   document.getElementById('deudaSummary').innerHTML =
-    `<div class="card"><div class="card-title">Saldo total restante</div><div class="card-val red">${fmtUSD(totalDeuda)}</div></div>
-     <div class="card"><div class="card-title">Cuotas mensuales</div><div class="card-val yellow">${fmtUSD(totalCuota)}</div></div>
-     <div class="card"><div class="card-title">Intereses mora acumulados</div><div class="card-val ${totalMora>0?'red':'green'}">${fmtUSD(totalMora)}</div></div>`;
+    `<div class="card"><div class="card-title">Saldo total restante</div><div class="card-val red">${fmtUSD(totalSaldo)}</div></div>
+     <div class="card"><div class="card-title">Cuotas este mes</div><div class="card-val yellow">${fmtUSD(totalCuota)}</div></div>
+     <div class="card"><div class="card-title">Mora acumulada</div><div class="card-val ${totalMora>0?'red':'green'}">${fmtUSD(totalMora)}</div></div>`;
 
   const list = document.getElementById('deudasList');
   if (!debts.length) {
@@ -1583,44 +1641,49 @@ function renderDeudas() {
   }
 
   list.innerHTML = debts.map(d => {
-    const saldo     = d._saldoActual;
-    const pagos     = d._pagos;
-    const totalCuotas = d._cuotasTotal;
-    const pct       = totalCuotas ? Math.min(Math.round(pagos/totalCuotas*100),100) : 0;
-    const mora      = calcDebtMoraLive(d);
-    const isV       = d.vence && d.vence < today_s && saldo > 0;
-    const pagadaMes = !!data[`debtpaid_${mon}_${d.id}`];
-    const pagada    = saldo <= 0;
+    const saldo       = d._saldoActual;
+    const pct         = d._pct;
+    const mora        = calcDebtMoraLive(d);
+    const pagadaMes   = !!data[`debtpaid_${mon}_${d.id}`];
+    const montoPagado = data[`debtamt_${mon}_${d.id}`] || d.cuota;
+    const pagada      = saldo <= 0;
+    const diff        = d.diaPago - todayDay;
+    let statusColor   = 'var(--tex3)'; let statusText = `Día ${d.diaPago} de cada mes`;
+    if (!pagadaMes && !pagada) {
+      if (diff < 0)      { statusColor='var(--red)';  statusText=`Vencida hace ${Math.abs(diff)} días`; }
+      else if (diff===0) { statusColor='var(--red)';  statusText='¡Vence hoy!'; }
+      else if (diff<=3)  { statusColor='var(--yel)';  statusText=`Vence en ${diff} días`; }
+    }
 
-    // Progress bar
-    const progressBar = totalCuotas ? `
+    const progressBar = d._cuotasTotal ? `
       <div style="margin-top:8px">
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tex3);margin-bottom:4px">
-          <span>${pagos} de ${totalCuotas} cuotas pagadas</span>
+          <span>${d._cuotasPagadas} de ${d._cuotasTotal} cuotas · ${fmtUSD(d._saldoPagado)} pagado</span>
           <span>${pct}%</span>
         </div>
         <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${pct>=100?'var(--acc)':'var(--blu)'}"></div></div>
       </div>` : '';
 
-    // Mora display
     let moraStr = '';
     if (mora > 0) {
-      const diffDays = Math.floor((new Date() - new Date(d.vence+'T00:00:00')) / (1000*60*60*24));
+      const diffDays = Math.floor((new Date() - new Date(d.diaPago<=todayDay?
+        new Date().getFullYear()+'-'+String(new Date().getMonth()+1).padStart(2,'0')+'-'+String(d.diaPago).padStart(2,'0'):
+        new Date().getFullYear()+'-'+String(new Date().getMonth()).padStart(2,'0')+'-'+String(d.diaPago).padStart(2,'0')
+      )) / (1000*60*60*24));
       moraStr = `<div style="margin-top:8px;padding:8px 10px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:6px;font-size:12px">
         <i class="fa-solid fa-triangle-exclamation" style="color:var(--red);margin-right:4px"></i>
-        <span style="color:var(--red);font-weight:600">Mora: ${diffDays} días</span>
+        <span style="color:var(--red);font-weight:600">Mora: ${Math.abs(diff)} días</span>
         <span style="color:var(--tex3);margin-left:8px">Intereses: <b style="color:var(--red)">${fmtUSD(mora)}</b></span>
         <span style="color:var(--tex3);margin-left:8px">Total real: <b style="color:var(--red)">${fmtUSD(saldo+mora)}</b></span>
       </div>`;
     }
 
-    // Paid off badge
     if (pagada) {
       return `<div style="padding:14px 0;border-bottom:1px solid var(--bor)">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div>
             <div style="font-weight:500;font-size:14px">${d.name} <span style="font-size:11px;color:var(--tex3)">${d.tipo}</span></div>
-            <div style="font-size:12px;color:var(--acc);margin-top:2px"><i class="fa-solid fa-check-circle"></i> ¡Deuda saldada! ${totalCuotas} cuotas pagadas</div>
+            <div style="font-size:12px;color:var(--acc);margin-top:2px"><i class="fa-solid fa-check-circle"></i> ¡Deuda saldada! Total pagado: ${fmtUSD(d._saldoPagado)}</div>
           </div>
           <div style="display:flex;gap:6px">
             <button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="editDeuda('${d.id}')"><i class="fa-solid fa-pen"></i></button>
@@ -1634,38 +1697,28 @@ function renderDeudas() {
     return `<div style="padding:14px 0;border-bottom:1px solid var(--bor)">
       <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start">
         <div>
-          <div style="font-weight:500;font-size:14px">${d.name} <span style="font-size:11px;color:var(--tex3)">${d.tipo}</span></div>
-          <div style="font-size:12px;color:var(--tex3);margin-top:2px">
-            Tasa: ${d.tasa}% anual
-            ${d.vence ? `· Fecha pago: día ${new Date(d.vence+'T00:00:00').getDate()} de cada mes` : ''}
+          <div style="font-weight:500;font-size:14px">${d.name}
+            <span style="font-size:11px;color:var(--tex3)">${d.tipo}</span>
+            <span style="font-size:11px;color:${statusColor};margin-left:6px">${statusText}</span>
           </div>
-          <div style="margin-top:6px;display:flex;align-items:center;gap:16px">
-            <div>
-              <div style="font-size:11px;color:var(--tex3)">Saldo restante</div>
-              <div style="font-weight:700;color:var(--red);font-size:16px">${fmtUSD(saldo)}</div>
-            </div>
-            <div>
-              <div style="font-size:11px;color:var(--tex3)">Cuota mensual</div>
-              <div style="font-weight:600;color:var(--yel);font-size:16px">${fmtUSD(d.cuota)}</div>
-            </div>
-            ${totalCuotas ? `<div>
-              <div style="font-size:11px;color:var(--tex3)">Cuotas restantes</div>
-              <div style="font-weight:600;font-size:16px">${totalCuotas-pagos}</div>
-            </div>` : ''}
+          <div style="font-size:12px;color:var(--tex3);margin-top:2px">Tasa: ${d.tasa}% anual</div>
+          <div style="margin-top:8px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+            <div><div style="font-size:11px;color:var(--tex3)">Saldo restante</div>
+              <div style="font-weight:700;color:var(--red);font-size:16px">${fmtUSD(saldo)}</div></div>
+            <div><div style="font-size:11px;color:var(--tex3)">Cuota sugerida</div>
+              <div style="font-weight:600;color:var(--yel);font-size:16px">${fmtUSD(d.cuota)}</div></div>
+            ${d._cuotasTotal?`<div><div style="font-size:11px;color:var(--tex3)">Cuotas restantes</div>
+              <div style="font-weight:600;font-size:16px">${Math.max(0,d._cuotasTotal-d._cuotasPagadas)}</div></div>`:''}
           </div>
           ${progressBar}
           ${moraStr}
+          ${pagadaMes?`<div style="margin-top:6px;font-size:12px;color:var(--acc)"><i class="fa-solid fa-check"></i> Pagado este mes: <b>${fmtUSD(montoPagado)}</b></div>`:''}
         </div>
         <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
-          ${isV ? `<span class="mora-badge"><i class="fa-solid fa-triangle-exclamation"></i> Vencida</span>` : ''}
-          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;
-            padding:6px 10px;border-radius:8px;border:1px solid ${pagadaMes?'var(--acc)':'var(--bor)'};
-            background:${pagadaMes?'rgba(110,231,183,.1)':'transparent'};
-            color:${pagadaMes?'var(--acc)':'var(--tex3)'}">
-            <input type="checkbox" ${pagadaMes?'checked':''} onchange="markDebtPaid('${d.id}',this.checked)"
-              style="accent-color:var(--acc)">
-            ${pagadaMes?'Cuota pagada':'Pagar cuota'}
-          </label>
+          <button class="btn ${pagadaMes?'btn-ghost':'btn-primary'}" style="font-size:12px;padding:7px 12px;white-space:nowrap"
+            onclick="${pagadaMes?`desmarcarPagoDeuda('${d.id}')`:`abrirPagoDeuda('${d.id}')`}">
+            ${pagadaMes?'<i class="fa-solid fa-rotate-left"></i> Deshacer':'<i class="fa-solid fa-dollar-sign"></i> Pagar cuota'}
+          </button>
           <div style="display:flex;gap:6px">
             <button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="editDeuda('${d.id}')"><i class="fa-solid fa-pen"></i></button>
             <button class="btn btn-danger" style="padding:4px 8px;font-size:12px" onclick="deleteDeuda('${d.id}')"><i class="fa-solid fa-trash"></i></button>
@@ -1676,7 +1729,6 @@ function renderDeudas() {
   }).join('');
 }
 
-// Returns total number of monthly payments made for a debt
 function getDebtPayments(debtId) {
   let count = 0;
   Object.keys(data).forEach(k => {
@@ -1685,44 +1737,86 @@ function getDebtPayments(debtId) {
   return count;
 }
 
-function markDebtPaid(id, val) {
-  const mon   = currentMonthStr();
-  const key   = `debtpaid_${mon}_${id}`;
-  const txKey = `debttx_${mon}_${id}`;
-  const txId  = `auto_debt_${id}_${mon}`;
-  const debt  = (data.debts||[]).find(d=>d.id===id);
-  if (!debt) return;
+function abrirPagoDeuda(id) {
+  const d = (data.debts||[]).find(x=>x.id===id); if(!d) return;
+  const saldo = Math.max(0, d.total - (d.saldoPagado||0));
+  document.getElementById('pagoDeudaId').value      = id;
+  document.getElementById('pagoDeudaNombre').textContent = d.name;
+  document.getElementById('pagoDeudaSaldo').textContent  = fmtUSD(saldo);
+  document.getElementById('pagoDeudaMonto').value   = d.cuota;
+  document.getElementById('pagoDeudaNota').value    = '';
+  document.getElementById('pagoDeudaHint').textContent  =
+    `Cuota sugerida: ${fmtUSD(d.cuota)} · Saldo: ${fmtUSD(saldo)} · Puedes pagar más para reducir cuotas`;
+  openModal('modalPagoDeuda');
+  setTimeout(()=>document.getElementById('pagoDeudaMonto').select(), 100);
+}
 
-  if (val) {
-    data[key] = true;
-    // Create transaction for the CUOTA amount (not total)
-    if (!data.transactions.find(t=>t.id===txId)) {
-      data.transactions.push({
-        id: txId, type:'gasto', date: today(),
-        desc: `Cuota ${getDebtPayments(id)}/${debt._cuotasTotal||'?'}: ${debt.name}`,
-        amount: debt.cuota,
-        cat:'Deudas', method:'transferencia',
-        note: `Saldo restante aprox: ${fmtUSD(Math.max(0,debt.total - getDebtPayments(id)*debt.cuota))}`,
-        auto: true
-      });
-    }
-    data[txKey] = true;
-  } else {
-    delete data[key];
-    data.transactions = data.transactions.filter(t=>t.id!==txId);
-    delete data[txKey];
+function confirmarPagoDeuda() {
+  const id    = document.getElementById('pagoDeudaId').value;
+  const monto = parseFloat(document.getElementById('pagoDeudaMonto').value) || 0;
+  const nota  = document.getElementById('pagoDeudaNota').value.trim();
+  if (!monto) { alert('Ingresa el monto a pagar.'); return; }
+  const d = (data.debts||[]).find(x=>x.id===id); if(!d) return;
+  const mon   = currentMonthStr();
+  const txId  = `auto_debt_${id}_${mon}`;
+  const saldo = Math.max(0, d.total - (d.saldoPagado||0));
+  const pagoReal = Math.min(monto, saldo); // can't pay more than what's owed
+
+  // Update saldoPagado on the debt
+  d.saldoPagado = (d.saldoPagado||0) + pagoReal;
+
+  // Mark as paid this month
+  data[`debtpaid_${mon}_${id}`]  = true;
+  data[`debtamt_${mon}_${id}`]   = pagoReal;
+  data[`debttx_${mon}_${id}`]    = true;
+
+  // Create transaction
+  if (!data.transactions.find(t=>t.id===txId)) {
+    const cuotasTotal = d.cuota>0 ? Math.ceil(d.total/d.cuota) : null;
+    const cuotaNum    = d.cuota>0 ? Math.round(d.saldoPagado/d.cuota) : '';
+    data.transactions.push({
+      id: txId, type:'gasto', date: today(),
+      desc: `${cuotasTotal?`Cuota ${cuotaNum}/${cuotasTotal}: `:''}${d.name}`,
+      amount: pagoReal, cat:'Deudas', method:'transferencia',
+      note: nota || `Saldo restante: ${fmtUSD(Math.max(0,d.total-d.saldoPagado))}`,
+      auto: true
+    });
   }
+
   saveData();
+  closeModal('modalPagoDeuda');
   renderDeudas();
+}
+
+function desmarcarPagoDeuda(id) {
+  if (!confirm('¿Deshacer el pago de este mes? Se eliminará la transacción.')) return;
+  const mon   = currentMonthStr();
+  const monto = data[`debtamt_${mon}_${id}`] || 0;
+  const txId  = `auto_debt_${id}_${mon}`;
+  const d     = (data.debts||[]).find(x=>x.id===id);
+  if (d && monto) d.saldoPagado = Math.max(0,(d.saldoPagado||0)-monto);
+  delete data[`debtpaid_${mon}_${id}`];
+  delete data[`debtamt_${mon}_${id}`];
+  delete data[`debttx_${mon}_${id}`];
+  data.transactions = data.transactions.filter(t=>t.id!==txId);
+  saveData(); renderDeudas();
+}
+
+function markDebtPaid(id, val) { // legacy — redirect
+  if (val) abrirPagoDeuda(id); else desmarcarPagoDeuda(id);
 }
 
 
 function editDeuda(id) {
   const d=data.debts.find(x=>x.id===id); if(!d)return;
-  document.getElementById('deudaEditId').value=d.id; document.getElementById('deudaTitleModal').textContent='Editar Deuda';
-  document.getElementById('deudaNombre').value=d.name; document.getElementById('deudaTotal').value=d.total;
-  document.getElementById('deudaCuota').value=d.cuota; document.getElementById('deudaTasa').value=d.tasa;
-  document.getElementById('deudaVence').value=d.vence||''; document.getElementById('deudaTipo').value=d.tipo||'prestamo';
+  document.getElementById('deudaEditId').value=d.id;
+  document.getElementById('deudaTitleModal').textContent='Editar Deuda';
+  document.getElementById('deudaNombre').value=d.name;
+  document.getElementById('deudaTotal').value=d.total;
+  document.getElementById('deudaCuota').value=d.cuota;
+  document.getElementById('deudaTasa').value=d.tasa;
+  document.getElementById('deudaDiaPago').value=d.diaPago||1;
+  document.getElementById('deudaTipo').value=d.tipo||'prestamo';
   openModal('modalDeuda');
 }
 function deleteDeuda(id) { if(!confirm('¿Eliminar?'))return; data.debts=data.debts.filter(x=>x.id!==id); saveData();renderDeudas(); }

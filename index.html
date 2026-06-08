@@ -1554,65 +1554,169 @@ function saveDeuda() {
   renderDeudas();
 }
 function renderDeudas() {
-  const debts = data.debts || [];
+  const debts   = data.debts || [];
   const today_s = today();
-  const totalDeuda = debts.reduce((s,d)=>s+d.total,0);
-  const totalCuota = debts.reduce((s,d)=>s+d.cuota,0);
-  const totalMora  = debts.reduce((s,d)=>s+calcDebtMoraLive(d),0);
-  const vencidas   = debts.filter(d=>d.vence&&d.vence<today_s).length;
+  const mon     = currentMonthStr();
+
+  // Recalculate saldo restante based on payments made
+  debts.forEach(d => {
+    const pagos = getDebtPayments(d.id);
+    d._saldoActual = Math.max(0, d.total - pagos * d.cuota);
+    d._pagos       = pagos;
+    d._cuotasTotal = d.cuota > 0 ? Math.ceil(d.total / d.cuota) : null;
+  });
+
+  const totalDeuda  = debts.reduce((s,d)=>s+d._saldoActual,0);
+  const totalCuota  = debts.reduce((s,d)=>s+d.cuota,0);
+  const totalMora   = debts.reduce((s,d)=>s+calcDebtMoraLive(d),0);
+  const vencidas    = debts.filter(d=>d.vence&&d.vence<today_s&&d._saldoActual>0).length;
+
   document.getElementById('deudaSummary').innerHTML =
-    `<div class="card"><div class="card-title">Total deuda</div><div class="card-val red">${fmtUSD(totalDeuda)}</div></div>
+    `<div class="card"><div class="card-title">Saldo total restante</div><div class="card-val red">${fmtUSD(totalDeuda)}</div></div>
      <div class="card"><div class="card-title">Cuotas mensuales</div><div class="card-val yellow">${fmtUSD(totalCuota)}</div></div>
      <div class="card"><div class="card-title">Intereses mora acumulados</div><div class="card-val ${totalMora>0?'red':'green'}">${fmtUSD(totalMora)}</div></div>`;
+
   const list = document.getElementById('deudasList');
-  if (!debts.length) { list.innerHTML=`<div class="empty-state"><i class="fa-solid fa-credit-card"></i><p>Sin deudas registradas.</p></div>`; return; }
-  const mon = currentMonthStr();
+  if (!debts.length) {
+    list.innerHTML=`<div class="empty-state"><i class="fa-solid fa-credit-card"></i><p>Sin deudas registradas.</p></div>`;
+    return;
+  }
+
   list.innerHTML = debts.map(d => {
-    const isV   = d.vence && d.vence < today_s;
-    const mora  = calcDebtMoraLive(d);
-    const meses = d.cuota > 0 ? Math.ceil(d.total/d.cuota) : null;
-    const paid  = !!data[`debtpaid_${mon}_${d.id}`];
+    const saldo     = d._saldoActual;
+    const pagos     = d._pagos;
+    const totalCuotas = d._cuotasTotal;
+    const pct       = totalCuotas ? Math.min(Math.round(pagos/totalCuotas*100),100) : 0;
+    const mora      = calcDebtMoraLive(d);
+    const isV       = d.vence && d.vence < today_s && saldo > 0;
+    const pagadaMes = !!data[`debtpaid_${mon}_${d.id}`];
+    const pagada    = saldo <= 0;
+
+    // Progress bar
+    const progressBar = totalCuotas ? `
+      <div style="margin-top:8px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--tex3);margin-bottom:4px">
+          <span>${pagos} de ${totalCuotas} cuotas pagadas</span>
+          <span>${pct}%</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${pct>=100?'var(--acc)':'var(--blu)'}"></div></div>
+      </div>` : '';
+
+    // Mora display
     let moraStr = '';
     if (mora > 0) {
       const diffDays = Math.floor((new Date() - new Date(d.vence+'T00:00:00')) / (1000*60*60*24));
-      moraStr = `<div style="margin-top:6px;padding:6px 10px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:6px;font-size:12px">
+      moraStr = `<div style="margin-top:8px;padding:8px 10px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:6px;font-size:12px">
         <i class="fa-solid fa-triangle-exclamation" style="color:var(--red);margin-right:4px"></i>
         <span style="color:var(--red);font-weight:600">Mora: ${diffDays} días</span>
-        <span style="color:var(--tex3);margin-left:8px">Intereses acumulados: <b style="color:var(--red)">${fmtUSD(mora)}</b></span>
-        <span style="color:var(--tex3);margin-left:8px">Total a pagar: <b style="color:var(--red)">${fmtUSD(d.total+mora)}</b></span>
+        <span style="color:var(--tex3);margin-left:8px">Intereses: <b style="color:var(--red)">${fmtUSD(mora)}</b></span>
+        <span style="color:var(--tex3);margin-left:8px">Total real: <b style="color:var(--red)">${fmtUSD(saldo+mora)}</b></span>
       </div>`;
     }
+
+    // Paid off badge
+    if (pagada) {
+      return `<div style="padding:14px 0;border-bottom:1px solid var(--bor)">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-weight:500;font-size:14px">${d.name} <span style="font-size:11px;color:var(--tex3)">${d.tipo}</span></div>
+            <div style="font-size:12px;color:var(--acc);margin-top:2px"><i class="fa-solid fa-check-circle"></i> ¡Deuda saldada! ${totalCuotas} cuotas pagadas</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="editDeuda('${d.id}')"><i class="fa-solid fa-pen"></i></button>
+            <button class="btn btn-danger" style="padding:4px 8px;font-size:12px" onclick="deleteDeuda('${d.id}')"><i class="fa-solid fa-trash"></i></button>
+          </div>
+        </div>
+        ${progressBar}
+      </div>`;
+    }
+
     return `<div style="padding:14px 0;border-bottom:1px solid var(--bor)">
-      <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:12px;align-items:center">
+      <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start">
         <div>
           <div style="font-weight:500;font-size:14px">${d.name} <span style="font-size:11px;color:var(--tex3)">${d.tipo}</span></div>
-          <div style="font-size:12px;color:var(--tex3)">Tasa: ${d.tasa}% anual · ${meses?`~${meses} cuotas`:'Sin cuota'} ${d.vence?`· Vence: ${d.vence}`:''}</div>
+          <div style="font-size:12px;color:var(--tex3);margin-top:2px">
+            Tasa: ${d.tasa}% anual
+            ${d.vence ? `· Fecha pago: día ${new Date(d.vence+'T00:00:00').getDate()} de cada mes` : ''}
+          </div>
+          <div style="margin-top:6px;display:flex;align-items:center;gap:16px">
+            <div>
+              <div style="font-size:11px;color:var(--tex3)">Saldo restante</div>
+              <div style="font-weight:700;color:var(--red);font-size:16px">${fmtUSD(saldo)}</div>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--tex3)">Cuota mensual</div>
+              <div style="font-weight:600;color:var(--yel);font-size:16px">${fmtUSD(d.cuota)}</div>
+            </div>
+            ${totalCuotas ? `<div>
+              <div style="font-size:11px;color:var(--tex3)">Cuotas restantes</div>
+              <div style="font-weight:600;font-size:16px">${totalCuotas-pagos}</div>
+            </div>` : ''}
+          </div>
+          ${progressBar}
+          ${moraStr}
         </div>
-        <div style="text-align:right">
-          <div style="font-weight:600;color:var(--red)">${fmtUSD(d.total)}</div>
-          <div style="font-size:12px;color:var(--tex3)">${fmtUSD(d.cuota)}/mes</div>
-        </div>
-        ${isV?`<span class="mora-badge"><i class="fa-solid fa-triangle-exclamation"></i> Vencida</span>`:'<span></span>'}
-        <div style="display:flex;gap:6px;align-items:center">
-          <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;color:${paid?'var(--acc)':'var(--tex3)'}">
-            <input type="checkbox" ${paid?'checked':''} onchange="markDebtPaid('${d.id}',this.checked)" style="accent-color:var(--acc)"> Pagado
+        <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+          ${isV ? `<span class="mora-badge"><i class="fa-solid fa-triangle-exclamation"></i> Vencida</span>` : ''}
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;
+            padding:6px 10px;border-radius:8px;border:1px solid ${pagadaMes?'var(--acc)':'var(--bor)'};
+            background:${pagadaMes?'rgba(110,231,183,.1)':'transparent'};
+            color:${pagadaMes?'var(--acc)':'var(--tex3)'}">
+            <input type="checkbox" ${pagadaMes?'checked':''} onchange="markDebtPaid('${d.id}',this.checked)"
+              style="accent-color:var(--acc)">
+            ${pagadaMes?'Cuota pagada':'Pagar cuota'}
           </label>
-          <button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="editDeuda('${d.id}')"><i class="fa-solid fa-pen"></i></button>
-          <button class="btn btn-danger" style="padding:4px 8px;font-size:12px" onclick="deleteDeuda('${d.id}')"><i class="fa-solid fa-trash"></i></button>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="editDeuda('${d.id}')"><i class="fa-solid fa-pen"></i></button>
+            <button class="btn btn-danger" style="padding:4px 8px;font-size:12px" onclick="deleteDeuda('${d.id}')"><i class="fa-solid fa-trash"></i></button>
+          </div>
         </div>
       </div>
-      ${moraStr}
     </div>`;
   }).join('');
 }
 
-function markDebtPaid(id, val) {
-  const mon = currentMonthStr();
-  const key = `debtpaid_${mon}_${id}`;
-  if (val) data[key] = true; else delete data[key];
-  syncDebtTransactions();
-  saveData(); renderDeudas();
+// Returns total number of monthly payments made for a debt
+function getDebtPayments(debtId) {
+  let count = 0;
+  Object.keys(data).forEach(k => {
+    if (k.startsWith('debtpaid_') && k.endsWith('_'+debtId)) count++;
+  });
+  return count;
 }
+
+function markDebtPaid(id, val) {
+  const mon   = currentMonthStr();
+  const key   = `debtpaid_${mon}_${id}`;
+  const txKey = `debttx_${mon}_${id}`;
+  const txId  = `auto_debt_${id}_${mon}`;
+  const debt  = (data.debts||[]).find(d=>d.id===id);
+  if (!debt) return;
+
+  if (val) {
+    data[key] = true;
+    // Create transaction for the CUOTA amount (not total)
+    if (!data.transactions.find(t=>t.id===txId)) {
+      data.transactions.push({
+        id: txId, type:'gasto', date: today(),
+        desc: `Cuota ${getDebtPayments(id)}/${debt._cuotasTotal||'?'}: ${debt.name}`,
+        amount: debt.cuota,
+        cat:'Deudas', method:'transferencia',
+        note: `Saldo restante aprox: ${fmtUSD(Math.max(0,debt.total - getDebtPayments(id)*debt.cuota))}`,
+        auto: true
+      });
+    }
+    data[txKey] = true;
+  } else {
+    delete data[key];
+    data.transactions = data.transactions.filter(t=>t.id!==txId);
+    delete data[txKey];
+  }
+  saveData();
+  renderDeudas();
+}
+
+
 function editDeuda(id) {
   const d=data.debts.find(x=>x.id===id); if(!d)return;
   document.getElementById('deudaEditId').value=d.id; document.getElementById('deudaTitleModal').textContent='Editar Deuda';
